@@ -17,7 +17,7 @@ spec:
     spec:
       containers:
       - name: backend
-        image: k8s-portfolio-backend:latest
+        image: portfolio-backend:v3
         imagePullPolicy: Never
         ports:
         - containerPort: 3000
@@ -54,6 +54,8 @@ spec:
         volumeMounts:
         - name: backend-storage
           mountPath: /app/data
+        - name: backend-logs
+          mountPath: /app/logs
         livenessProbe:
           httpGet:
             path: /health
@@ -69,8 +71,25 @@ spec:
   volumeClaimTemplates:
   - metadata:
       name: backend-storage
+      labels:
+        app: backend
+        component: storage
     spec:
-      accessModes: [ "ReadWriteOnce" ]
+      accessModes: 
+        - "ReadWriteOnce"
+      storageClassName: "standard"
+      resources:
+        requests:
+          storage: 2Gi
+  - metadata:
+      name: backend-logs
+      labels:
+        app: backend
+        component: logs
+    spec:
+      accessModes:
+        - "ReadWriteOnce"
+      storageClassName: "standard"
       resources:
         requests:
           storage: 1Gi

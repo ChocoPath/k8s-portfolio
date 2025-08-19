@@ -87,42 +87,107 @@ const DB_USER = process.env.DB_USER || 'admin';
 const DB_PASSWORD = process.env.DB_PASSWORD || 'secretpassword';
 const DB_NAME = process.env.DB_NAME || 'portfolio_db';
 
-// Data directory for StatefulSet persistence
+// Data and logs directories for StatefulSet persistence
 const DATA_DIR = '/app/data';
+const LOGS_DIR = '/app/logs';
 
-// Ensure data directory exists
+// Ensure directories exist
 if (!fs.existsSync(DATA_DIR)) {
   fs.mkdirSync(DATA_DIR, { recursive: true });
 }
 
-// In-memory storage for demo (in real app, this would be in database)
-let portfolioData = {
-  projects: [
-    {
-      id: 1,
-      title: 'Kubernetes Portfolio',
-      description: 'A comprehensive Kubernetes portfolio demonstrating stateless and stateful applications',
-      technologies: ['Kubernetes', 'Docker', 'Node.js', 'PostgreSQL'],
-      featured: true,
-      github_url: 'https://github.com/portfolio/k8s-portfolio'
-    },
-    {
-      id: 2,
-      title: 'Microservices E-commerce',
-      description: 'Full-stack e-commerce platform using microservices architecture',
-      technologies: ['Node.js', 'React', 'MongoDB', 'Redis', 'Docker'],
-      featured: false,
-      github_url: 'https://github.com/portfolio/microservices-ecommerce'
+if (!fs.existsSync(LOGS_DIR)) {
+  fs.mkdirSync(LOGS_DIR, { recursive: true });
+}
+
+// Custom logging function that writes to persistent volume
+function logToFile(level, message, data = null) {
+  const timestamp = new Date().toISOString();
+  const logEntry = {
+    timestamp,
+    level,
+    message,
+    data,
+    pid: process.pid,
+    hostname: require('os').hostname()
+  };
+  
+  const logFile = path.join(LOGS_DIR, `app-${new Date().toISOString().split('T')[0]}.log`);
+  const logLine = JSON.stringify(logEntry) + '\n';
+  
+  fs.appendFileSync(logFile, logLine);
+  console.log(`[${timestamp}] ${level.toUpperCase()}: ${message}`);
+}
+
+// Data file for persistence demonstration
+const DATA_FILE = path.join(DATA_DIR, 'portfolio-data.json');
+
+// Load or initialize portfolio data from persistent storage
+function loadPortfolioData() {
+  try {
+    if (fs.existsSync(DATA_FILE)) {
+      const data = fs.readFileSync(DATA_FILE, 'utf8');
+      logToFile('info', 'Portfolio data loaded from persistent storage');
+      return JSON.parse(data);
     }
-  ],
-  skills: [
-    { id: 1, name: 'Kubernetes', category: 'devops', proficiency: 8 },
-    { id: 2, name: 'Docker', category: 'devops', proficiency: 9 },
-    { id: 3, name: 'Node.js', category: 'backend', proficiency: 8 },
-    { id: 4, name: 'React', category: 'frontend', proficiency: 7 },
-    { id: 5, name: 'PostgreSQL', category: 'database', proficiency: 7 }
-  ]
-};
+  } catch (error) {
+    logToFile('error', 'Failed to load portfolio data from storage', error.message);
+  }
+  
+  // Default data if file doesn't exist or is corrupted
+  const defaultData = {
+    projects: [
+      {
+        id: 1,
+        title: 'Kubernetes Portfolio',
+        description: 'A comprehensive Kubernetes portfolio demonstrating stateless and stateful applications',
+        technologies: ['Kubernetes', 'Docker', 'Node.js', 'PostgreSQL'],
+        featured: true,
+        github_url: 'https://github.com/portfolio/k8s-portfolio',
+        created_at: new Date().toISOString()
+      },
+      {
+        id: 2,
+        title: 'Microservices E-commerce',
+        description: 'Full-stack e-commerce platform using microservices architecture',
+        technologies: ['Node.js', 'React', 'MongoDB', 'Redis', 'Docker'],
+        featured: false,
+        github_url: 'https://github.com/portfolio/microservices-ecommerce',
+        created_at: new Date().toISOString()
+      }
+    ],
+    skills: [
+      { id: 1, name: 'Kubernetes', category: 'devops', proficiency: 8 },
+      { id: 2, name: 'Docker', category: 'devops', proficiency: 9 },
+      { id: 3, name: 'Node.js', category: 'backend', proficiency: 8 },
+      { id: 4, name: 'React', category: 'frontend', proficiency: 7 },
+      { id: 5, name: 'PostgreSQL', category: 'database', proficiency: 7 }
+    ],
+    metadata: {
+      initialized_at: new Date().toISOString(),
+      version: '1.0.0'
+    }
+  };
+  
+  savePortfolioData(defaultData);
+  logToFile('info', 'Default portfolio data initialized');
+  return defaultData;
+}
+
+// Save portfolio data to persistent storage
+function savePortfolioData(data) {
+  try {
+    data.metadata = data.metadata || {};
+    data.metadata.last_updated = new Date().toISOString();
+    fs.writeFileSync(DATA_FILE, JSON.stringify(data, null, 2));
+    logToFile('info', 'Portfolio data saved to persistent storage');
+  } catch (error) {
+    logToFile('error', 'Failed to save portfolio data to storage', error.message);
+  }
+}
+
+// Initialize portfolio data
+let portfolioData = loadPortfolioData();
 
 // Health check endpoints
 app.get('/health', (req, res) => {
@@ -246,6 +311,125 @@ app.get('/api/data/:key', (req, res) => {
       success: true, 
       data,
       pod: process.env.HOSTNAME || 'unknown'
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Add a new project (demonstrates data persistence)
+app.post('/api/projects', (req, res) => {
+  try {
+    const { title, description, technologies, github_url } = req.body;
+    const newProject = {
+      id: Math.max(...portfolioData.projects.map(p => p.id)) + 1,
+      title,
+      description,
+      technologies: technologies || [],
+      github_url,
+      featured: false,
+      created_at: new Date().toISOString()
+    };
+    
+    portfolioData.projects.push(newProject);
+    savePortfolioData(portfolioData);
+    logToFile('info', 'New project added', { projectId: newProject.id, title });
+    
+    res.status(201).json({ success: true, data: newProject });
+  } catch (error) {
+    logToFile('error', 'Failed to add project', error.message);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Get storage info (demonstrates persistent volume usage)
+app.get('/api/storage', (req, res) => {
+  try {
+    const dataFiles = fs.readdirSync(DATA_DIR);
+    const logFiles = fs.readdirSync(LOGS_DIR);
+    
+    const dataStats = dataFiles.map(file => {
+      const filePath = path.join(DATA_DIR, file);
+      const stats = fs.statSync(filePath);
+      return {
+        name: file,
+        size: stats.size,
+        modified: stats.mtime,
+        path: filePath
+      };
+    });
+    
+    const logStats = logFiles.map(file => {
+      const filePath = path.join(LOGS_DIR, file);
+      const stats = fs.statSync(filePath);
+      return {
+        name: file,
+        size: stats.size,
+        modified: stats.mtime,
+        path: filePath
+      };
+    });
+    
+    res.json({
+      success: true,
+      data: {
+        pod: process.env.HOSTNAME || 'unknown',
+        volumes: {
+          data: {
+            path: DATA_DIR,
+            files: dataStats,
+            total_files: dataStats.length,
+            total_size: dataStats.reduce((sum, f) => sum + f.size, 0)
+          },
+          logs: {
+            path: LOGS_DIR,
+            files: logStats,
+            total_files: logStats.length,
+            total_size: logStats.reduce((sum, f) => sum + f.size, 0)
+          }
+        }
+      }
+    });
+  } catch (error) {
+    logToFile('error', 'Failed to get storage info', error.message);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Get logs (demonstrates log persistence)
+app.get('/api/logs', (req, res) => {
+  try {
+    const { lines = 50 } = req.query;
+    const logFiles = fs.readdirSync(LOGS_DIR)
+      .filter(file => file.endsWith('.log'))
+      .sort()
+      .reverse();
+    
+    if (logFiles.length === 0) {
+      return res.json({ success: true, data: { logs: [], message: 'No log files found' } });
+    }
+    
+    const latestLogFile = path.join(LOGS_DIR, logFiles[0]);
+    const logContent = fs.readFileSync(latestLogFile, 'utf8');
+    const logLines = logContent.trim().split('\n')
+      .slice(-lines)
+      .map(line => {
+        try {
+          return JSON.parse(line);
+        } catch {
+          return { raw: line };
+        }
+      });
+    
+    res.json({
+      success: true,
+      data: {
+        pod: process.env.HOSTNAME || 'unknown',
+        log_file: logFiles[0],
+        total_lines: logContent.split('\n').length,
+        returned_lines: logLines.length,
+        logs: logLines
+      }
     });
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });
