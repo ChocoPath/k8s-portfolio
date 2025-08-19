@@ -1,0 +1,29 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: app-config
+  labels:
+    app: portfolio-app
+data:
+  # Backend configuration
+  backend-url: "http://backend-service-lb:3000"
+  
+  # Database configuration
+  db-host: "postgres-service.database.svc.cluster.local"
+  db-port: "5432"
+  db-name: "portfolio_db"
+  
+  # Application settings
+  app-env: "production"
+  log-level: "info"
+  
+  # Frontend configuration
+  api-timeout: "30000"
+  
+  # Cache settings
+  redis-host: "redis-service.cache.svc.cluster.local"
+  redis-port: "6379"
+  
+  # Feature flags
+  feature-auth: "true"
+  feature-analytics: "true"
