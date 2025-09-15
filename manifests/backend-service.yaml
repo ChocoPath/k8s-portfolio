@@ -17,8 +17,6 @@ spec:
     name: http
   selector:
     app: backend
-  # Headless service for StatefulSet
-  clusterIP: None
 ---
 apiVersion: v1
 kind: Service
